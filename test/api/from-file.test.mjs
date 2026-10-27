@@ -141,20 +141,17 @@ describe("POST /v1/pdf/from-file - errors (HTTP 500 + {error})", () => {
         assert.deepEqual(parseErrorBody(r.body), { error: "No files given" });
     });
 
-    // LEGACY BUG: with Content-Type: application/json the express.json() middleware
-    // consumes the body first, formidable then waits forever and the request never
-    // gets a response. Marked todo: the sane behaviour (a prompt error response) is
-    // asserted, but a failure does not fail the run.
-    test("JSON body instead of multipart gets a prompt error response", {
-        todo: "legacy hangs forever on application/json bodies on multipart endpoints",
-    }, async () => {
+    // The legacy image (2019) never answered here: express.json() consumed the body and
+    // formidable then waited forever. Fixed in 2.0.0, so this fails against pedef:legacy.
+    test("JSON body instead of multipart gets a prompt error response", async () => {
         const r = await request("/v1/pdf/from-file", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ file: "<html></html>" }),
             timeoutMs: 10_000,
         });
-        assert.ok(r.status >= 400, `expected an error status, got ${r.status}`);
+        assert.equal(r.status, 500);
+        assert.deepEqual(parseErrorBody(r.body), { error: "No files given" });
     });
 });
 
