@@ -3,7 +3,7 @@ import {execFileSync} from "node:child_process";
 import {readdirSync} from "node:fs";
 import {tmpdir} from "node:os";
 import Thumbnailer from "../../../src/model/pdf/Thumbnailer";
-import {fixture, pngSize, streamToBuffer} from "../../helpers";
+import {fixture, pngSize, requireTool, streamToBuffer} from "../../helpers";
 
 function hasPdftoppm(): boolean {
     try {
@@ -19,9 +19,7 @@ const thumbDirs = () => readdirSync(tmpdir()).filter((f) => f.startsWith("pedef-
 describe("Thumbnailer", function() {
 
     before(function() {
-        if (!hasPdftoppm()) {
-            this.skip(); // poppler-utils not installed
-        }
+        requireTool(this, hasPdftoppm(), "pdftoppm (poppler-utils) not installed");
     });
 
     for (const name of ["single-page.pdf", "multi-page.pdf"]) {

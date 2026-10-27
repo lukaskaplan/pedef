@@ -1,16 +1,14 @@
 import {assert} from "chai";
 import {PDFDocument} from "pdf-lib";
 import Renderer from "../../../src/model/pdf/Renderer";
-import {findChromium, readFixture, streamToBuffer} from "../../helpers";
+import {findChromium, readFixture, requireTool, streamToBuffer} from "../../helpers";
 
 describe("Renderer", function() {
 
     const chromium = findChromium();
 
     before(function() {
-        if (chromium === null) {
-            this.skip(); // no Chromium available, set PUPPETEER_EXECUTABLE_PATH
-        }
+        requireTool(this, chromium !== null, "no Chromium available, set PUPPETEER_EXECUTABLE_PATH");
     });
 
     it("render should generate an A4 pdf by default", async () => {

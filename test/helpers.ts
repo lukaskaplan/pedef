@@ -45,3 +45,17 @@ export function findChromium(): string | null {
 export function readFixture(name: string): Buffer {
     return readFileSync(fixture(name));
 }
+
+/**
+ * Skips the suite when an external tool is missing - unless PEDEF_REQUIRE_TOOLS=1 (the Docker build),
+ * where a missing tool must fail the build instead of silently skipping the tests.
+ */
+export function requireTool(ctx: Mocha.Context, available: boolean, reason: string): void {
+    if (available) {
+        return;
+    }
+    if (process.env.PEDEF_REQUIRE_TOOLS === "1") {
+        throw new Error(`${reason} (PEDEF_REQUIRE_TOOLS=1)`);
+    }
+    ctx.skip();
+}
