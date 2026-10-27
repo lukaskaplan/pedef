@@ -141,9 +141,11 @@ describe("POST /v1/pdf/from-file - errors (HTTP 500 + {error})", () => {
         assert.deepEqual(parseErrorBody(r.body), { error: "No files given" });
     });
 
-    // The legacy image (2019) never answered here: express.json() consumed the body and
-    // formidable then waited forever. Fixed in 2.0.0, so this fails against pedef:legacy.
-    test("JSON body instead of multipart gets a prompt error response", async () => {
+    // The 2019 image never answered here: express.json() consumed the body and formidable
+    // then waited forever. PEDEF_LEGACY=1 skips it.
+    test("JSON body instead of multipart gets a prompt error response", {
+        skip: process.env.PEDEF_LEGACY === "1" && "fixed after legacy",
+    }, async () => {
         const r = await request("/v1/pdf/from-file", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

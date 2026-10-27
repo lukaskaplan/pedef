@@ -140,6 +140,18 @@ describe("Router (HTTP API)", () => {
             );
         });
 
+        const forbidden = [
+            "file:///etc/passwd", "FILE:///etc/passwd", "view-source:http://x", "chrome://version", "not a url",
+        ];
+        for (const url of forbidden) {
+            it(`allows only http and https urls: ${url}`, async () => {
+                await assertError(
+                    await post("/v1/pdf/from-url", json({url, options: {}})), "Only http and https URLs are allowed",
+                );
+                assert.deepEqual(renderer.calls, []);
+            });
+        }
+
     });
 
     describe("from-file", () => {

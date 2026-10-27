@@ -91,6 +91,8 @@ export default class Renderer implements IRenderer {
         const opts: PDFOptions = Object.assign(defaults, custom);
         // the pdf is always returned in the response; never let a client write files on the server
         delete opts.path;
+        // the render timeout is ours (puppeteer's default); a client could switch it off with 0
+        delete opts.timeout;
 
         return opts;
     }

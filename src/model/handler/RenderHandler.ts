@@ -4,6 +4,8 @@ import IRenderer from "../pdf/IRenderer";
 import BasicHandler from "./BasicHandler";
 import InvalidArgumentError from "./InvalidArgumentError";
 
+const ALLOWED_URL_PROTOCOLS = ["http:", "https:"];
+
 export default class RenderHandler extends BasicHandler {
 
     constructor(private renderer: IRenderer) {
@@ -41,6 +43,11 @@ export default class RenderHandler extends BasicHandler {
 
         if (!req.body || !req.body.options) {
             throw new InvalidArgumentError("Missing 'options' in request");
+        }
+
+        // Chromium would happily open file:// (or chrome://, view-source:, ...) and return local files
+        if (!URL.canParse(req.body.url) || !ALLOWED_URL_PROTOCOLS.includes(new URL(req.body.url).protocol)) {
+            throw new InvalidArgumentError("Only http and https URLs are allowed");
         }
     }
 

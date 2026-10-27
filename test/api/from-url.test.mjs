@@ -195,3 +195,22 @@ describe("POST /v1/pdf/from-url - errors (HTTP 500 + {error})", () => {
         assert.ok(err.error.length > 0);
     });
 });
+
+// PEDEF_LEGACY=1 skips the tests of behaviour fixed after the 2019 image.
+const LEGACY = process.env.PEDEF_LEGACY === "1";
+
+describe("POST /v1/pdf/from-url - security", () => {
+    // The 2019 image rendered file:///etc/passwd into the pdf.
+    for (const url of ["file:///etc/passwd", "view-source:file:///etc/passwd", "chrome://version"]) {
+        test(`${url} -> 500 Only http and https URLs are allowed`, { skip: LEGACY && "fixed after legacy" }, async () => {
+            const r = await postJson("/v1/pdf/from-url", { url, options: {} });
+            assert.equal(r.status, 500);
+            assert.deepEqual(parseErrorBody(r.body), { error: "Only http and https URLs are allowed" });
+        });
+    }
+
+    test("a client timeout option is ignored (timeout: 1 still renders)", async () => {
+        const r = await postJson("/v1/pdf/from-url", { url: `${fixture.baseUrl}/simple.html`, options: { timeout: 1 } });
+        assert.equal(assertPdfResponse(r).pages, 1);
+    });
+});
