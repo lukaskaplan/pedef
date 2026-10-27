@@ -26,6 +26,9 @@ export default class HttpServer {
                 logger.info(`HttpServer is listening info on port: ${this.getPort()}`);
                 resolve();
             });
+            // Node >= 18 aborts requests after 300 s; long renders/merges must not be cut (Node 13 had no
+            // limit), the timeout belongs to the reverse proxy and the client
+            server.requestTimeout = 0;
             this.server = server;
         });
     }

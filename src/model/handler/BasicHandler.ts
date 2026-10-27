@@ -1,6 +1,7 @@
 import {Request, Response} from "express";
 import formidable from "formidable";
 import {unlink} from "node:fs";
+import {uploadMaxFiles, uploadMaxMb} from "../../config";
 import logger from "../logger/Logger";
 import InvalidArgumentError from "./InvalidArgumentError";
 
@@ -76,6 +77,9 @@ export default class BasicHandler {
                 // formidable 1 accepted empty files
                 allowEmptyFiles: true,
                 minFileSize: 0,
+                maxFiles: uploadMaxFiles,
+                maxFileSize: uploadMaxMb * 1024 * 1024,
+                maxTotalFileSize: uploadMaxMb * 1024 * 1024,
             });
 
             // "fileBegin" comes in upload order, "file" only once a file is written to disk, which can be

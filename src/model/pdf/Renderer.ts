@@ -3,15 +3,20 @@ import {mkdtemp, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {Readable} from "node:stream";
-import {chromiumPath} from "../../config";
+import {chromiumPath, maxConcurrentRenders} from "../../config";
 import logger from "../logger/Logger";
+import Semaphore from "../util/Semaphore";
 import IRenderer from "./IRenderer";
 
 type PageCallback = (page: Page) => Promise<void>;
 
 export default class Renderer implements IRenderer {
 
-    constructor(private executablePath: string = chromiumPath) {
+    // every render starts its own Chromium (100-200 MB), the rest of the requests wait for a slot
+    private slots: Semaphore;
+
+    constructor(private executablePath: string = chromiumPath, maxConcurrent: number = maxConcurrentRenders) {
+        this.slots = new Semaphore(maxConcurrent);
     }
 
     public async renderFromUrl(url: string, options: unknown): Promise<Readable> {
@@ -30,7 +35,11 @@ export default class Renderer implements IRenderer {
         return this.render(pageCallback, options);
     }
 
-    private async render(pageCallback: PageCallback, options: unknown): Promise<Readable> {
+    private render(pageCallback: PageCallback, options: unknown): Promise<Readable> {
+        return this.slots.run(() => this.renderInBrowser(pageCallback, options));
+    }
+
+    private async renderInBrowser(pageCallback: PageCallback, options: unknown): Promise<Readable> {
         // Chromium leaves some temp directories behind, give it its own TMPDIR and remove it afterwards
         const tmp = await mkdtemp(join(tmpdir(), "pedef-chromium-"));
         let browser: Browser;
