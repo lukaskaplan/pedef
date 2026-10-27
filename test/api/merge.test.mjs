@@ -1,10 +1,27 @@
 // POST /v1/pdf/merge  (multipart PDFs -> merged PDF, Content-Disposition: attachment; filename=merged.pdf;)
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { HAVE_PDFINFO, dataFile, isPdf, makePdf, parseErrorBody, pdfInfo, postMultipart, request } from "./helpers.mjs";
+import {
+    HAVE_PDFINFO, dataFile, isPdf, makePdf, parseErrorBody, pdfInfo, pdfObjectsText, pdfText, postMultipart, request,
+} from "./helpers.mjs";
 
 const SINGLE = dataFile("single-page.pdf"); // 1 page, A4
 const MULTI = dataFile("multi-page.pdf"); // 6 pages, A4
+
+// Small fixtures, all 300x200 pt pages with Helvetica text:
+// - outline.pdf, form.pdf: hand-written uncompressed PDFs (readable in a text editor) with a correct xref.
+//   outline.pdf: 2 pages "Outline page 1/2", outline "Chapter 1" -> p1, "Chapter 2" -> p2.
+//   form.pdf: 1 page "Form page", AcroForm text field "name" = "Pedef" with an appearance stream.
+// - encrypted-*.pdf: outline.pdf encrypted with qpdf 12.2 (--static-id --static-aes-iv keep it reproducible):
+//   qpdf --static-id --static-aes-iv --encrypt --user-password= --owner-password=owner --bits=128 --use-aes=y \
+//        --modify=none --extract=n -- outline.pdf encrypted-owner.pdf
+//   qpdf --static-id --static-aes-iv --encrypt --user-password=user --owner-password=owner --bits=128 --use-aes=y \
+//        -- outline.pdf encrypted-user.pdf
+//   qpdf --static-id --static-aes-iv --encrypt --user-password= --owner-password=owner --bits=256 \
+//        --modify=none -- outline.pdf encrypted-owner-aes256.pdf
+// - damaged-xref.pdf: outline.pdf with the startxref offset replaced by 999 (readers rebuild the xref).
+const OUTLINE = dataFile("outline.pdf"); // 2 pages, 300x200, outlines
+const FORM = dataFile("form.pdf"); // 1 page, 300x200, AcroForm field name=Pedef
 
 function assertMergedPdf({ status, headers, body }) {
     assert.equal(status, 200, `expected 200, got ${status}: ${body.toString("utf8").slice(0, 300)}`);
@@ -97,5 +114,94 @@ describe("POST /v1/pdf/merge - errors (HTTP 500 + {error})", () => {
         const err = parseErrorBody(r.body);
         assert.equal(typeof err.error, "string");
         assert.ok(err.error.length > 0);
+    });
+});
+
+describe("POST /v1/pdf/merge - encrypted, damaged and interactive PDFs", () => {
+    // owner password only (no user password): opened without a password, restrictions are ignored and the
+    // merged file is not encrypted. Legacy (pdftk 2.02) and qpdf behave the same.
+    test("owner-password-only encrypted PDF (AES-128, no modify/extract) + normal PDF -> merged, unencrypted", async () => {
+        const r = await postMultipart("/v1/pdf/merge", [
+            { name: "a", file: dataFile("encrypted-owner.pdf") },
+            { name: "b", file: FORM },
+        ]);
+        const info = assertMergedPdf(r);
+        assert.equal(info.pages, 3);
+        assert.equal(info.encrypted, false);
+        const text = pdfText(r.body);
+        if (text !== null) {
+            assert.match(text, /Outline page 1[\s\S]*Outline page 2[\s\S]*Form page/);
+        }
+    });
+
+    // pdftk 2.02 crashes on AES-256 (Java NullPointerException -> 500), qpdf merges it. Only the minimum both
+    // satisfy is asserted: a merged PDF or a clean error, never a hang or a broken body.
+    test("owner-password-only encrypted PDF (AES-256) -> merged PDF or 500 {error}", async () => {
+        const r = await postMultipart("/v1/pdf/merge", [
+            { name: "a", file: dataFile("encrypted-owner-aes256.pdf") },
+            { name: "b", file: FORM },
+        ]);
+        if (r.status === 200) {
+            const info = assertMergedPdf(r);
+            assert.equal(info.pages, 3);
+            assert.equal(info.encrypted, false);
+        } else {
+            assert.equal(r.status, 500);
+            assert.equal(typeof parseErrorBody(r.body).error, "string");
+        }
+    });
+
+    // messages differ: legacy returns pdftk's stderr, the new image a fixed text - shape only
+    test("PDF that needs a user password -> 500 with an error message", async () => {
+        const r = await postMultipart("/v1/pdf/merge", [
+            { name: "a", file: dataFile("encrypted-user.pdf") },
+            { name: "b", file: FORM },
+        ]);
+        assert.equal(r.status, 500);
+        const err = parseErrorBody(r.body);
+        assert.equal(typeof err.error, "string");
+        assert.ok(err.error.length > 0);
+    });
+
+    test("damaged PDF (wrong xref offset) is repaired and merged", async () => {
+        const r = await postMultipart("/v1/pdf/merge", [
+            { name: "a", file: dataFile("damaged-xref.pdf") },
+            { name: "b", file: FORM },
+        ]);
+        assert.equal(assertMergedPdf(r).pages, 3);
+    });
+
+    test("form fields are kept, also when two files have a field of the same name", async () => {
+        const r1 = await postMultipart("/v1/pdf/merge", [
+            { name: "a", file: OUTLINE },
+            { name: "b", file: FORM },
+        ]);
+        const i1 = assertMergedPdf(r1);
+        assert.equal(i1.pages, 3);
+        assert.equal(i1.form, "AcroForm");
+
+        // pdftk renames the second field to "1.name", qpdf to "name+1"; both keep both values
+        const r2 = await postMultipart("/v1/pdf/merge", [
+            { name: "a", file: FORM },
+            { name: "b", file: FORM },
+        ]);
+        const i2 = assertMergedPdf(r2);
+        assert.equal(i2.pages, 2);
+        assert.equal(i2.form, "AcroForm");
+        assert.equal(pdfObjectsText(r2.body).match(/\/V\s*\(Pedef\)/g)?.length, 2);
+    });
+
+    // Outlines (bookmarks) are NOT asserted: pdftk 2.02 merged the outlines of all files,
+    // qpdf --empty --pages drops them (as pdf-lib did). Only the pages are checked.
+    test("PDF with outlines -> its pages are merged", async () => {
+        const r = await postMultipart("/v1/pdf/merge", [
+            { name: "a", file: OUTLINE },
+            { name: "b", file: SINGLE },
+        ]);
+        const info = assertMergedPdf(r);
+        assert.equal(info.pages, 3);
+        if (HAVE_PDFINFO) {
+            assert.deepEqual([info.width, info.height], [300, 200]);
+        }
     });
 });

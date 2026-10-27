@@ -1,6 +1,7 @@
 import {Request, Response} from "express";
 import formidable from "formidable";
 import {unlink} from "node:fs";
+import {Readable} from "node:stream";
 import {uploadMaxFiles, uploadMaxMb} from "../../config";
 import logger from "../logger/Logger";
 import InvalidArgumentError from "./InvalidArgumentError";
@@ -49,6 +50,12 @@ export default class BasicHandler {
      */
     protected sendStream(stream: NodeJS.ReadableStream, res: Response): void {
         stream.on("error", (e: Error) => this.handleError(e, res));
+        // pipe() leaves the source open when the client goes away early; a file stream would keep its fd
+        res.on("close", () => {
+            if (stream instanceof Readable && !stream.readableEnded) {
+                stream.destroy();
+            }
+        });
         stream.pipe(res);
     }
 

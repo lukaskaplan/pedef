@@ -1,7 +1,6 @@
 import {assert} from "chai";
-import {PDFDocument} from "pdf-lib";
 import Renderer from "../../../src/model/pdf/Renderer";
-import {findChromium, readFixture, requireTool, streamToBuffer} from "../../helpers";
+import {findChromium, hasPdfinfo, pdfInfo, readFixture, requireTool, streamToBuffer} from "../../helpers";
 
 describe("Renderer", function() {
 
@@ -9,6 +8,7 @@ describe("Renderer", function() {
 
     before(function() {
         requireTool(this, chromium !== null, "no Chromium available, set PUPPETEER_EXECUTABLE_PATH");
+        requireTool(this, hasPdfinfo(), "pdfinfo (poppler-utils) not installed");
     });
 
     it("render should generate an A4 pdf by default", async () => {
@@ -17,9 +17,9 @@ describe("Renderer", function() {
         const pdf = await streamToBuffer(await renderer.renderFromFile(readFixture("file.html").toString(), {}));
 
         assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
-        const page = (await PDFDocument.load(pdf)).getPage(0);
-        assert.approximately(page.getWidth(), 595, 2);
-        assert.approximately(page.getHeight(), 842, 2);
+        const page = await pdfInfo(pdf);
+        assert.approximately(page.width, 595, 2);
+        assert.approximately(page.height, 842, 2);
     });
 
     it("render should merge custom options over the defaults", async () => {
@@ -27,9 +27,9 @@ describe("Renderer", function() {
 
         const pdf = await streamToBuffer(await renderer.renderFromFile("<p>ahoj</p>", {format: "A5", landscape: true}));
 
-        const page = (await PDFDocument.load(pdf)).getPage(0);
-        assert.approximately(page.getWidth(), 595, 2);
-        assert.approximately(page.getHeight(), 420, 2);
+        const page = await pdfInfo(pdf);
+        assert.approximately(page.width, 595, 2);
+        assert.approximately(page.height, 420, 2);
     });
 
     it("render should fail on an unknown paper format", async () => {

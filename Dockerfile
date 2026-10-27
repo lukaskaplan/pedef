@@ -7,7 +7,8 @@ ARG NODE_IMAGE=node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be8571
 FROM ${NODE_IMAGE} AS base
 
 # chromium      - renders the pdfs (driven by puppeteer-core)
-# poppler-utils - pdftoppm renders thumbnails
+# poppler-utils - pdftoppm renders thumbnails (pdfinfo is used by the unit tests)
+# qpdf          - merges pdfs
 # tini          - PID 1: forwards signals and reaps Chromium zombie processes
 # fonts         - Latin incl. Czech diacritics (DejaVu, Liberation, FreeFont) and major non-latin
 #                 scripts (Japanese, Chinese, Thai, Arabic)
@@ -15,6 +16,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         chromium \
         poppler-utils \
+        qpdf \
         tini \
         fonts-dejavu-core \
         fonts-liberation \
@@ -37,7 +39,7 @@ COPY tsconfig.json eslint.config.mjs .mocharc.json ./
 COPY src ./src
 COPY test ./test
 COPY data ./data
-# PEDEF_REQUIRE_TOOLS: tests that need Chromium or poppler fail instead of being skipped
+# PEDEF_REQUIRE_TOOLS: tests that need Chromium, poppler or qpdf fail instead of being skipped
 RUN npm run build && npm run lint && PEDEF_REQUIRE_TOOLS=1 npm test
 
 # ---- production node_modules only ------------------------------------------------------------------

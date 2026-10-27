@@ -1,9 +1,20 @@
-import {readFile} from "node:fs/promises";
+import {execFile} from "node:child_process";
+import {mkdtemp, open, readFile, rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import {Readable} from "node:stream";
-import {PDFDocument} from "pdf-lib";
+import {promisify} from "node:util";
+import logger from "../logger/Logger";
 import IMerger from "./IMerger";
 
+const execFileAsync = promisify(execFile);
+
 export default class Merger implements IMerger {
+
+    private static readonly ERROR = "Failed to merge pdf files";
+
+    constructor(private qpdf: string = "qpdf") {
+    }
 
     public async merge(pdfs: string[]): Promise<Readable> {
         if (pdfs.length === 0) {
@@ -15,21 +26,45 @@ export default class Merger implements IMerger {
             return Readable.from([await readFile(pdfs[0])]);
         }
 
-        const merged = await PDFDocument.create();
-        for (const path of pdfs) {
-            const doc = await this.load(path);
-            const pages = await merged.copyPages(doc, doc.getPageIndices());
-            pages.forEach((page) => merged.addPage(page));
-        }
+        const dir = await mkdtemp(join(tmpdir(), "pedef-merge-"));
+        try {
+            const out = join(dir, "merged.pdf");
+            await this.run(pdfs, out);
+            // The open file stays readable after its directory is removed, so the result is streamed
+            // from disk instead of being loaded into memory; the stream closes the file when it ends.
+            const file = await open(out);
 
-        return Readable.from([Buffer.from(await merged.save())]);
+            return file.createReadStream();
+        } finally {
+            await rm(dir, {recursive: true, force: true});
+        }
     }
 
-    private async load(path: string): Promise<PDFDocument> {
+    /**
+     * qpdf --empty --pages a.pdf b.pdf ... -- out.pdf
+     *
+     * --empty             the pages of all files are copied the same way; no document-level data (outlines,
+     *                     metadata, encryption) is taken over from the first file
+     * --warning-exit-0    exit 0 instead of 3 when qpdf had to repair a damaged but readable input
+     *
+     * Files encrypted with an owner password only are opened (the user password is empty) and the output
+     * is not encrypted; files that need a user password to open fail with "invalid password".
+     */
+    private async run(pdfs: string[], out: string): Promise<void> {
         try {
-            return await PDFDocument.load(await readFile(path));
+            const {stderr} = await execFileAsync(
+                this.qpdf,
+                ["--warning-exit-0", "--empty", "--pages", ...pdfs, "--", out],
+                {timeout: 120_000, maxBuffer: 16 * 1024 * 1024},
+            );
+            if (stderr) {
+                logger.warn(`qpdf: ${stderr}`);
+            }
         } catch (e) {
-            throw new Error(`Failed to merge pdf files: ${(e as Error).message}`, {cause: e});
+            const err = e as Error & {stderr?: string};
+            logger.error(`qpdf failed: ${err.message} ${err.stderr ?? ""}`);
+            const reason = /invalid password/.test(err.stderr ?? "") ? ": a file is protected by a password" : "";
+            throw new Error(`${Merger.ERROR}${reason}`, {cause: e});
         }
     }
 

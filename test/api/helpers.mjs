@@ -140,7 +140,8 @@ function withTempPdf(buf, fn) {
 }
 
 /**
- * { pages, width, height } of a PDF (size of page 1, in points, rotation ignored).
+ * { pages, width, height, encrypted, form } of a PDF (size of page 1, in points,
+ * rotation ignored; form is "AcroForm", "XFA" or "none").
  * Uses pdfinfo when available, otherwise a minimal JS parser.
  */
 export function pdfInfo(buf) {
@@ -148,17 +149,18 @@ export function pdfInfo(buf) {
         const out = withTempPdf(buf, (f) => execFileSync("pdfinfo", [f], { encoding: "utf8" }));
         const pages = Number(/^Pages:\s+(\d+)/m.exec(out)?.[1]);
         const size = /^Page size:\s+([\d.]+) x ([\d.]+) pts/m.exec(out);
-        return { pages, width: Number(size?.[1]), height: Number(size?.[2]) };
+        const encrypted = /^Encrypted:\s+yes/m.test(out);
+        const form = /^Form:\s+(\S+)/m.exec(out)?.[1];
+        return { pages, width: Number(size?.[1]), height: Number(size?.[2]), encrypted, form };
     }
     return pdfInfoJs(buf);
 }
 
 /**
- * Pure-JS page count / first MediaBox. Handles classic PDFs (Skia/Chrome,
- * pdftk) and PDFs whose objects live in compressed object streams (/ObjStm):
- * those streams are inflated and searched too.
+ * The PDF as latin1 text with the content of compressed object streams (/ObjStm)
+ * appended, so that object dictionaries can be searched with regular expressions.
  */
-export function pdfInfoJs(buf) {
+export function pdfObjectsText(buf) {
     const raw = buf.toString("latin1");
     let text = raw;
     const streamRe = /<<((?:(?!>>\s*stream)[\s\S])*?)>>\s*stream\r?\n/g;
@@ -175,11 +177,23 @@ export function pdfInfoJs(buf) {
             // not flate or corrupt - ignore, best effort
         }
     }
+    return text;
+}
+
+/**
+ * Pure-JS page count / first MediaBox / encryption / form. Handles classic PDFs
+ * (Skia/Chrome, pdftk, qpdf) and PDFs whose objects live in compressed object
+ * streams. Not for encrypted input: their object streams cannot be read.
+ */
+export function pdfInfoJs(buf) {
+    const text = pdfObjectsText(buf);
     const pages = (text.match(/\/Type\s*\/Page(?![a-zA-Z])/g) || []).length;
     const box = /\/MediaBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/.exec(text);
     const width = box ? Number(box[3]) - Number(box[1]) : NaN;
     const height = box ? Number(box[4]) - Number(box[2]) : NaN;
-    return { pages, width, height };
+    const encrypted = /\/Encrypt\s*(?:<<|\d+\s+\d+\s+R)/.test(text);
+    const form = /\/AcroForm\b/.test(text) ? "AcroForm" : "none";
+    return { pages, width, height, encrypted, form };
 }
 
 /** Extracted text of the PDF, or null when pdftotext is not available. */
