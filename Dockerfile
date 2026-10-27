@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1
 
-# Node.js 24 LTS on Debian 13 (trixie). The digest pins the exact multi-arch image (tag 24.22.1-trixie-slim).
-ARG NODE_IMAGE=node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea
+# Node.js 24 LTS on Debian 13 (trixie). The digest pins the exact multi-arch image; the image is named
+# directly in FROM (not via ARG) so that Dependabot can update it.
+FROM node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS node
 
 # ---- base: OS packages the service needs at runtime (the unit tests need them too) -------------------
-FROM ${NODE_IMAGE} AS base
+FROM node AS base
 
 # chromium      - renders the pdfs (driven by puppeteer-core)
 # poppler-utils - pdftoppm renders thumbnails (pdfinfo is used by the unit tests)
@@ -43,7 +44,7 @@ COPY data ./data
 RUN npm run build && npm run lint && PEDEF_REQUIRE_TOOLS=1 npm test
 
 # ---- production node_modules only ------------------------------------------------------------------
-FROM ${NODE_IMAGE} AS deps
+FROM node AS deps
 WORKDIR /app
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 COPY package.json package-lock.json ./
